@@ -7,7 +7,7 @@ Este projeto é um aplicativo Android simples em Kotlin que permite ao usuário:
 - recuperar a localização atual no momento da captura;
 - exibir a imagem capturada;
 - converter a imagem para Base64;
-- montar um JSON com latitude, longitude e imagemBase64;
+- montar um JSON com Latitude, Longitude e Imagem;
 - exibir esse JSON na tela;
 - preparar uma requisição HTTP POST simulada para um endpoint fake.
 
@@ -27,9 +27,9 @@ O app solicita as seguintes permissões no AndroidManifest:
 
 ## Fluxo do app
 1. O app solicita permissões de câmera e localização.
-2. O usuário toca em "Capturar Foto".
+2. O usuário toca em "Abrir Câmera".
 3. A câmera abre em preview dentro do app.
-4. O usuário tira uma foto.
+4. O usuário toca em "Tirar Foto".
 5. O app exibe a imagem capturada.
 6. O app busca a localização atual.
 7. O app converte a imagem para Base64.
@@ -40,9 +40,9 @@ O app solicita as seguintes permissões no AndroidManifest:
 ## Exemplo do JSON gerado
 ```json
 {
-  "latitude": -27.000000,
-  "longitude": -48.000000,
-  "imagemBase64": "string_base64_da_imagem"
+  "Latitude": -27.000000,
+  "Longitude": -48.000000,
+  "Imagem": "string_base64_da_imagem"
 }
 ```
 
@@ -54,6 +54,10 @@ A imagem é convertida para Base64 porque o JSON é um formato de texto. Como a 
 2. Selecione "Open" e escolha a pasta do projeto.
 3. Aguarde a sincronização do Gradle.
 4. Execute o app em um emulador ou dispositivo físico.
+5. Conceda as permissões solicitadas para câmera e localização.
+
+## Observação sobre o POST
+O POST é apenas preparado e simulado para fins didáticos da atividade. O app registra o endpoint e o JSON no Log, sem fazer uma chamada real para a internet.
 
 ## Arquivos principais
 - MainActivity.kt: tela principal, câmera, localização, JSON e POST simulado.

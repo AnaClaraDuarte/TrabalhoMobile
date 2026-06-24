@@ -103,6 +103,7 @@ fun TelaPrincipal(
     var longitude by remember { mutableStateOf("Não disponível") }
     var jsonString by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf("") }
+    var permissionStatus by remember { mutableStateOf("") }
     var locationStatus by remember { mutableStateOf("") }
     var postStatusMessage by remember { mutableStateOf("") }
 
@@ -113,8 +114,16 @@ fun TelaPrincipal(
         hasLocationPermission = (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true) ||
             (permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true)
 
-        if (!hasLocationPermission) {
-            locationStatus = "Permissão de localização negada"
+        if (!permissions[Manifest.permission.CAMERA].isNullOrFalse()) {
+            permissionStatus = ""
+        } else {
+            permissionStatus = "Permissão de câmera negada"
+        }
+
+        if (!permissions[Manifest.permission.ACCESS_FINE_LOCATION].isNullOrFalse() && !permissions[Manifest.permission.ACCESS_COARSE_LOCATION].isNullOrFalse()) {
+            permissionStatus = if (permissionStatus.isEmpty()) "" else permissionStatus
+        } else {
+            permissionStatus = if (permissionStatus.isEmpty()) "Permissão de localização negada" else "$permissionStatus\nPermissão de localização negada"
         }
     }
 
@@ -127,6 +136,16 @@ fun TelaPrincipal(
         hasLocationPermission = locationGranted
 
         if (!cameraGranted || !locationGranted) {
+            if (!cameraGranted) {
+                permissionStatus = "Permissão de câmera negada"
+            }
+            if (!locationGranted) {
+                permissionStatus = if (permissionStatus.isEmpty()) {
+                    "Permissão de localização negada"
+                } else {
+                    "$permissionStatus\nPermissão de localização negada"
+                }
+            }
             requestPermissionLauncher.launch(
                 arrayOf(
                     Manifest.permission.CAMERA,
@@ -149,8 +168,8 @@ fun TelaPrincipal(
 
         if (!hasCameraPermission || !hasLocationPermission) {
             Text("É necessário conceder câmera e localização para continuar.")
-            if (locationStatus.isNotEmpty()) {
-                Text(locationStatus)
+            if (permissionStatus.isNotEmpty()) {
+                Text(permissionStatus)
             }
             return@Column
         }
@@ -158,7 +177,7 @@ fun TelaPrincipal(
         Button(onClick = {
             previewVisible = true
         }) {
-            Text("Capturar Foto")
+            Text("Abrir Câmera")
         }
 
         if (previewVisible) {
@@ -172,7 +191,8 @@ fun TelaPrincipal(
                         it.setSurfaceProvider(previewView.surfaceProvider)
                     }
 
-                    imageCapture = ImageCapture.Builder().build()
+                    val capture = ImageCapture.Builder().build()
+                    imageCapture = capture
 
                     val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
                     cameraProvider.unbindAll()
@@ -180,7 +200,7 @@ fun TelaPrincipal(
                         lifecycleOwner,
                         cameraSelector,
                         preview,
-                        imageCapture
+                        capture
                     )
 
                     previewView
@@ -205,17 +225,22 @@ fun TelaPrincipal(
                         // Após salvar a imagem, busca a localização atual e monta o JSON.
                         CoroutineScope(Dispatchers.IO).launch {
                             val locationResult = getCurrentLocation(fusedLocationClient, context)
+                            val imageBase64 = encodeImageToBase64(filePath)
                             val jsonPayload = if (locationResult != null) {
                                 val (lat, lon) = locationResult
-                                val imageBase64 = encodeImageToBase64(filePath)
                                 val json = JSONObject().apply {
-                                    put("latitude", lat)
-                                    put("longitude", lon)
-                                    put("imagemBase64", imageBase64)
+                                    put("Latitude", lat.toDouble())
+                                    put("Longitude", lon.toDouble())
+                                    put("Imagem", imageBase64)
                                 }
                                 json.toString()
                             } else {
-                                ""
+                                val json = JSONObject().apply {
+                                    put("Latitude", "Não disponível")
+                                    put("Longitude", "Não disponível")
+                                    put("Imagem", imageBase64)
+                                }
+                                json.toString()
                             }
 
                             withContext(Dispatchers.Main) {
@@ -231,14 +256,10 @@ fun TelaPrincipal(
                                 }
 
                                 jsonString = jsonPayload
-                                if (jsonPayload.isNotEmpty()) {
-                                    postStatusMessage = "Requisição POST preparada com sucesso (simulada)"
-                                }
+                                postStatusMessage = "Requisição POST preparada com sucesso"
                             }
 
-                            if (jsonPayload.isNotEmpty()) {
-                                preparePostRequest(jsonPayload)
-                            }
+                            preparePostRequest(jsonPayload)
                         }
                     },
                     onError = { message ->
@@ -341,7 +362,6 @@ private suspend fun getCurrentLocation(
 
 // Prepara a requisição HTTP POST simulada com o JSON gerado para um endpoint fake.
 private fun preparePostRequest(jsonString: String) {
-    val client = OkHttpClient()
     val mediaType = "application/json; charset=utf-8".toMediaType()
     val body = jsonString.toRequestBody(mediaType)
 
@@ -350,13 +370,6 @@ private fun preparePostRequest(jsonString: String) {
         .post(body)
         .build()
 
-    CoroutineScope(Dispatchers.IO).launch {
-        try {
-            client.newCall(request).execute().use { response ->
-                Log.d("POST", "Resposta do servidor: ${response.code}")
-            }
-        } catch (e: Exception) {
-            Log.e("POST", "Erro ao preparar/enviar requisição: ${e.message}")
-        }
-    }
+    Log.d("POST", "Endpoint preparado: ${request.url}")
+    Log.d("POST", "JSON preparado: $jsonString")
 }
