@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -44,7 +45,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -60,17 +60,13 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private var imageCapture: ImageCapture? = null
-    private var currentPhotoPath: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -81,10 +77,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     TelaPrincipal(
                         activity = this,
-                        fusedLocationClient = fusedLocationClient,
-                        onPhotoCaptured = { path ->
-                            currentPhotoPath = path
-                        }
+                        fusedLocationClient = fusedLocationClient
                     )
                 }
             }
@@ -95,8 +88,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun TelaPrincipal(
     activity: ComponentActivity,
-    fusedLocationClient: FusedLocationProviderClient,
-    onPhotoCaptured: (String) -> Unit
+    fusedLocationClient: FusedLocationProviderClient
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -105,11 +97,14 @@ fun TelaPrincipal(
     var hasCameraPermission by remember { mutableStateOf(false) }
     var hasLocationPermission by remember { mutableStateOf(false) }
     var previewVisible by remember { mutableStateOf(false) }
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var latitude by remember { mutableStateOf("-") }
-    var longitude by remember { mutableStateOf("-") }
+    var latitude by remember { mutableStateOf("Não disponível") }
+    var longitude by remember { mutableStateOf("Não disponível") }
     var jsonString by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf("") }
+    var locationStatus by remember { mutableStateOf("") }
+    var postStatusMessage by remember { mutableStateOf("") }
 
     val requestPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -117,6 +112,10 @@ fun TelaPrincipal(
         hasCameraPermission = permissions[Manifest.permission.CAMERA] == true
         hasLocationPermission = (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true) ||
             (permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true)
+
+        if (!hasLocationPermission) {
+            locationStatus = "Permissão de localização negada"
+        }
     }
 
     // Solicita as permissões de câmera e localização ao abrir o app.
@@ -150,6 +149,9 @@ fun TelaPrincipal(
 
         if (!hasCameraPermission || !hasLocationPermission) {
             Text("É necessário conceder câmera e localização para continuar.")
+            if (locationStatus.isNotEmpty()) {
+                Text(locationStatus)
+            }
             return@Column
         }
 
@@ -160,11 +162,10 @@ fun TelaPrincipal(
         }
 
         if (previewVisible) {
-            // Exibe o preview da câmera usando CameraX.
+            // Inicializa o preview da câmera usando CameraX.
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx)
-                    val executor = Executors.newSingleThreadExecutor()
                     val cameraProvider = cameraProviderFuture.get()
 
                     val preview = Preview.Builder().build().also {
@@ -186,6 +187,7 @@ fun TelaPrincipal(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(400.dp)
                     .padding(vertical = 8.dp)
             )
 
@@ -195,7 +197,6 @@ fun TelaPrincipal(
                     activity = activity,
                     imageCapture = imageCapture,
                     onSuccess = { filePath ->
-                        onPhotoCaptured(filePath)
                         previewVisible = false
 
                         val bitmap = BitmapFactory.decodeFile(filePath)
@@ -204,21 +205,40 @@ fun TelaPrincipal(
                         // Após salvar a imagem, busca a localização atual e monta o JSON.
                         CoroutineScope(Dispatchers.IO).launch {
                             val locationResult = getCurrentLocation(fusedLocationClient, context)
-                            val (lat, lon) = locationResult
-                            val imageBase64 = encodeImageToBase64(filePath)
-                            val json = JSONObject().apply {
-                                put("latitude", lat)
-                                put("longitude", lon)
-                                put("imagemBase64", imageBase64)
+                            val jsonPayload = if (locationResult != null) {
+                                val (lat, lon) = locationResult
+                                val imageBase64 = encodeImageToBase64(filePath)
+                                val json = JSONObject().apply {
+                                    put("latitude", lat)
+                                    put("longitude", lon)
+                                    put("imagemBase64", imageBase64)
+                                }
+                                json.toString()
+                            } else {
+                                ""
                             }
 
                             withContext(Dispatchers.Main) {
-                                latitude = lat
-                                longitude = lon
-                                jsonString = json.toString()
+                                if (locationResult != null) {
+                                    val (lat, lon) = locationResult
+                                    latitude = lat
+                                    longitude = lon
+                                    locationStatus = "Localização obtida"
+                                } else {
+                                    latitude = "Não disponível"
+                                    longitude = "Não disponível"
+                                    locationStatus = "Localização não encontrada"
+                                }
+
+                                jsonString = jsonPayload
+                                if (jsonPayload.isNotEmpty()) {
+                                    postStatusMessage = "Requisição POST preparada com sucesso (simulada)"
+                                }
                             }
 
-                            preparePostRequest(jsonString)
+                            if (jsonPayload.isNotEmpty()) {
+                                preparePostRequest(jsonPayload)
+                            }
                         }
                     },
                     onError = { message ->
@@ -234,6 +254,10 @@ fun TelaPrincipal(
             Text(errorMessage, color = MaterialTheme.colorScheme.error)
         }
 
+        if (postStatusMessage.isNotEmpty()) {
+            Text(postStatusMessage)
+        }
+
         capturedBitmap?.let { bitmap ->
             Image(
                 bitmap = bitmap.asImageBitmap(),
@@ -244,6 +268,10 @@ fun TelaPrincipal(
 
         Text("Latitude: $latitude")
         Text("Longitude: $longitude")
+
+        if (locationStatus.isNotEmpty()) {
+            Text(locationStatus)
+        }
 
         if (jsonString.isNotEmpty()) {
             Text("JSON gerado:")
@@ -287,25 +315,31 @@ private fun encodeImageToBase64(filePath: String): String {
 }
 
 // Recupera latitude e longitude do usuário com FusedLocationProviderClient.
+// Busca a localização atual do usuário com FusedLocationProviderClient.
 private suspend fun getCurrentLocation(
     fusedLocationClient: FusedLocationProviderClient,
     context: Context
-): Pair<String, String> {
+): Pair<String, String>? {
     return try {
         val result = fusedLocationClient.getCurrentLocation(
             Priority.PRIORITY_HIGH_ACCURACY,
             CancellationTokenSource().token
         ).await()
 
-        val latitudeValue = result?.latitude?.toString() ?: "0.0"
-        val longitudeValue = result?.longitude?.toString() ?: "0.0"
-        Pair(latitudeValue, longitudeValue)
+        val latitudeValue = result?.latitude?.toString()
+        val longitudeValue = result?.longitude?.toString()
+
+        if (latitudeValue != null && longitudeValue != null) {
+            Pair(latitudeValue, longitudeValue)
+        } else {
+            null
+        }
     } catch (e: Exception) {
-        Pair("0.0", "0.0")
+        null
     }
 }
 
-// Prepara a requisição HTTP POST com o JSON gerado para um endpoint fake.
+// Prepara a requisição HTTP POST simulada com o JSON gerado para um endpoint fake.
 private fun preparePostRequest(jsonString: String) {
     val client = OkHttpClient()
     val mediaType = "application/json; charset=utf-8".toMediaType()
